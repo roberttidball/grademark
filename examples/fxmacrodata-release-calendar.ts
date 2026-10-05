@@ -18,8 +18,12 @@ export async function fetchFxMacroDataCalendar(
     endDate: string
 ): Promise<FxMacroDataEvent[]> {
     const url = `https://api.fxmacrodata.com/v1/calendar/${currency}?start_date=${startDate}&end_date=${endDate}`;
-    const payload = await getJson<FxMacroDataCalendarResponse>(url);
-    return payload.data || [];
+    const payload = await getJson<FxMacroDataCalendarResponse | null>(url);
+    const data = payload !== null && typeof payload === "object" ? payload.data : undefined;
+    if (!Array.isArray(data)) {
+        throw new Error("FXMacroData returned an unexpected response");
+    }
+    return data.filter(event => event !== null && typeof event === "object");
 }
 
 export function topTierBlackoutDates(events: FxMacroDataEvent[]): string[] {
@@ -35,6 +39,12 @@ function getJson<T>(url: string): Promise<T> {
     const headers: https.RequestOptions["headers"] = apiKey ? { "X-API-Key": apiKey } : {};
     return new Promise<T>((resolve, reject) => {
         https.get(url, { headers }, response => {
+            const status = response.statusCode || 0;
+            if (status < 200 || status >= 300) {
+                response.resume();
+                reject(new Error(`FXMacroData request failed with HTTP ${status}`));
+                return;
+            }
             let data = "";
             response.on("data", chunk => {
                 data += chunk;
